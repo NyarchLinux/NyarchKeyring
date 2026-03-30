@@ -15,7 +15,7 @@ KEY_EMAIL="hunter.tadlock911@gmail.com"
 #KEYSERVER='hkp://keys.gnupg.net'
 #KEYSERVER='hkp://pgp.nic.ad.jp'
 #KEYSERVER='hkp://hkps.pool.sks-keyservers.net'
-#KEYSERVER='hkps://keyserver.ubuntu.com'
+KEYSERVER='hkps://keyserver.ubuntu.com'
 
 GPG="gpg --quiet --batch --no-tty --no-permission-warning --keyserver "${KEYSERVER}" --homedir ${TMPDIR}"
 
