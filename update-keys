@@ -1,0 +1,88 @@
+#!/bin/bash
+
+export LANG=C
+
+TMPDIR=$(mktemp -d)
+trap "rm -rf '${TMPDIR}'" EXIT
+
+FILE_PREFIX="nyarch"
+KEY_DESCRIPTION="TotallyDIO"
+KEY_EMAIL="hunter.tadlock911@gmail.com"
+
+#KEYSERVER='hkp://pgp.ustc.edu.cn'
+#KEYSERVER='hkp://pool.sks-keyservers.net'
+#KEYSERVER='hkp://pgp.mit.edu'
+#KEYSERVER='hkp://keys.gnupg.net'
+#KEYSERVER='hkp://pgp.nic.ad.jp'
+#KEYSERVER='hkp://hkps.pool.sks-keyservers.net'
+#KEYSERVER='hkps://keyserver.ubuntu.com'
+
+GPG="gpg --quiet --batch --no-tty --no-permission-warning --keyserver "${KEYSERVER}" --homedir ${TMPDIR}"
+
+pushd "$(dirname "$0")" >/dev/null
+
+$GPG --gen-key <<EOF
+%echo Generating ${KEY_DESCRIPTION} Keyring keychain master key...
+Key-Type: RSA
+Key-Length: 1024
+Key-Usage: sign
+Name-Real: ${KEY_DESCRIPTION} Keyring Keychain Master Key
+Name-Email: ${KEY_EMAIL}
+Expire-Date: 0
+%no-protection
+%commit
+%echo Done
+EOF
+
+rm -rf master packager packager-revoked ${FILE_PREFIX}-trusted ${FILE_PREFIX}-revoked
+mkdir master packager packager-revoked
+
+while read -ra data; do
+	keyid="${data[0]}"
+	username="${data[@]:1}"
+	${GPG} --recv-keys ${keyid} &>/dev/null
+	printf 'minimize\nquit\ny\n' | \
+		${GPG} --command-fd 0 --edit-key ${keyid}
+	${GPG} --yes --lsign-key ${keyid} &>/dev/null
+	${GPG} --armor --no-emit-version --export ${keyid} >> master/${username}.asc
+	echo "${keyid}:4:" >> ${FILE_PREFIX}-trusted
+done < master-keyids
+${GPG} --import-ownertrust < ${FILE_PREFIX}-trusted 2>/dev/null
+
+while read -ra data; do
+	keyid="${data[0]}"
+	${GPG} --recv-keys ${keyid} &>/dev/null
+done < packager-keyids
+while read -ra data; do
+	keyid="${data[0]}"
+	username="${data[@]:1}"
+	printf 'clean\nquit\ny\n' | \
+		${GPG} --command-fd 0 --edit-key ${keyid}
+	if ! ${GPG} --list-keys --with-colons ${keyid} 2>/dev/null | grep -q '^pub:f:'; then
+		echo "key is not fully trusted: ${keyid} ${username}"
+	else
+		${GPG} --armor --no-emit-version --export ${keyid} >> packager/${username}.asc
+	fi
+done < packager-keyids
+
+while read -ra data; do
+	keyid="${data[0]}"
+	username="${data[1]}"
+	${GPG} --recv-keys ${keyid} &>/dev/null
+	printf 'clean\nquit\ny\n' | \
+		${GPG} --command-fd 0 --edit-key ${keyid}
+	if ! ${GPG} --list-keys --with-colons ${keyid} 2>/dev/null | grep -q '^pub:f:'; then
+		${GPG} --armor --no-emit-version --export ${keyid} >> packager-revoked/${username}.asc
+		echo "${keyid}" >> ${FILE_PREFIX}-revoked
+	else
+		echo "key is still fully trusted: ${keyid} ${username}"
+	fi
+done < packager-revoked-keyids
+
+cat master/*.asc packager/*.asc packager-revoked/*.asc > ${FILE_PREFIX}.gpg
+
+if [[ ! -f ${FILE_PREFIX}-revoked ]] ; then
+    touch ${FILE_PREFIX}-revoked
+fi
+
+popd >/dev/null
